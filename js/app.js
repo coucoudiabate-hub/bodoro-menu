@@ -7,13 +7,22 @@ const App = {
   _clientTab: 'accueil', // 'accueil' | 'menu' | 'contact'
   _adminTab: 'dashboard',
 
-  init() {
-    // Seed database if needed
-    seedDatabase();
-
-    // Initialize dark mode
+  async init() {
+    // Dark mode immédiatement (localStorage, pas besoin d'attendre Firestore)
     DB.initDarkMode();
     this._updateDarkModeIcon();
+
+    // Afficher l'écran de chargement
+    this._showLoader();
+
+    // Charger toutes les données depuis Firestore
+    await DB.loadAll();
+
+    // Seeder si la base est vide (premier lancement)
+    if (!DB.isSeeded()) await seedDatabase();
+
+    // Masquer l'écran de chargement
+    this._hideLoader();
 
     // Load saved mode
     this._mode = DB.getMode();
@@ -251,6 +260,35 @@ const App = {
     const addr = document.getElementById('footer-address');
     if (phone) phone.textContent = '📞 ' + (config.phone1 || '');
     if (addr) addr.textContent = '📍 ' + (config.address || 'Yamoussoukro');
+  },
+
+  _showLoader() {
+    let loader = document.getElementById('app-loader');
+    if (!loader) {
+      loader = document.createElement('div');
+      loader.id = 'app-loader';
+      loader.innerHTML = `
+        <div style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg, #f5f8f6);gap:20px">
+          <img src="assets/logo.jpg" alt="Bodoro" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid #c9973a;animation:logo-pulse 1.5s ease infinite">
+          <div style="font-size:1.125rem;font-weight:700;color:#084d34">La Côte d'Émeraude</div>
+          <div style="display:flex;gap:6px">
+            <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease infinite"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease 0.15s infinite"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease 0.3s infinite"></div>
+          </div>
+        </div>`;
+      document.body.appendChild(loader);
+    }
+    loader.style.display = 'flex';
+  },
+
+  _hideLoader() {
+    const loader = document.getElementById('app-loader');
+    if (loader) {
+      loader.style.opacity = '0';
+      loader.style.transition = 'opacity 0.4s';
+      setTimeout(() => loader.remove(), 400);
+    }
   }
 };
 

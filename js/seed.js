@@ -2,7 +2,7 @@
 // BODORO - Seed Data (Default categories, items, testimonials)
 // ============================================================
 
-function seedDatabase() {
+async function seedDatabase() {
   if (DB.isSeeded()) return;
 
   // --- Categories ---
@@ -93,16 +93,36 @@ function seedDatabase() {
   ];
 
   // --- Add timestamps and save ---
-  const now = new Date().toISOString();
-  categories.forEach(c => { c.createdAt = now; c.updatedAt = now; });
-  items.forEach(i => { i.createdAt = now; i.updatedAt = now; i.options = '[]'; i.image = ''; });
-  promotions.forEach(p => { p.createdAt = now; p.updatedAt = now; });
-  testimonials.forEach(t => { t.createdAt = now; t.updatedAt = now; });
+  // Créer les catégories dans Firestore et récupérer leurs vrais IDs
+  const catIdMap = {};
+  for (const cat of categories) {
+    const oldId = cat.id;
+    const created = await DB.createCategory({
+      name: cat.name, emoji: cat.emoji, sortOrder: cat.sortOrder, active: cat.active
+    });
+    catIdMap[oldId] = created.id;
+  }
 
-  DB._set(DB.KEYS.CATEGORIES, categories);
-  DB._set(DB.KEYS.ITEMS, items);
-  DB._set(DB.KEYS.PROMOTIONS, promotions);
-  DB._set(DB.KEYS.TESTIMONIALS, testimonials);
+  // Créer les articles avec les bons categoryId Firestore
+  for (const item of items) {
+    await DB.createItem({
+      name: item.name, description: item.description || '',
+      price: item.price, promoPrice: item.promoPrice || 0,
+      emoji: item.emoji, image: '',
+      categoryId: catIdMap[item.categoryId] || '',
+      available: item.available !== false,
+      isMenuJour: item.isMenuJour || false,
+      options: '[]'
+    });
+  }
 
-  // Database seeded successfully
+  // Créer les promotions
+  for (const p of promotions) {
+    await DB.createPromotion({ title: p.title, description: p.description, discount: p.discount, emoji: p.emoji, active: p.active !== false });
+  }
+
+  // Créer les témoignages
+  for (const t of testimonials) {
+    await DB.createTestimonial({ author: t.author, text: t.text, rating: t.rating, approved: true });
+  }
 }
