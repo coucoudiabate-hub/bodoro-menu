@@ -15,11 +15,29 @@ const App = {
     // Afficher l'écran de chargement
     this._showLoader();
 
-    // Charger toutes les données depuis Firestore
-    await DB.loadAll();
-
-    // Seeder si la base est vide (premier lancement)
-    if (!DB.isSeeded()) await seedDatabase();
+    // Charger Firestore avec timeout de sécurité (8 secondes max)
+    try {
+      const firestoreTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore timeout')), 8000)
+      );
+      await Promise.race([DB.loadAll(), firestoreTimeout]);
+      if (!DB.isSeeded()) await seedDatabase();
+    } catch(e) {
+      console.error('Erreur Firestore:', e.message);
+      const msg = document.getElementById('loader-msg');
+      if (msg) {
+        msg.innerHTML = `
+          <div style="color:#dc2626;font-size:0.875rem;max-width:320px;text-align:center;line-height:1.6;padding:0 16px">
+            ⚠️ Impossible de se connecter à Firebase.<br>
+            Vérifiez <strong>js/firebase-config.js</strong><br>
+            et les règles Firestore.
+          </div>
+          <button onclick="location.reload()" style="margin-top:12px;background:#084d34;color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:0.9375rem;font-weight:700">
+            🔄 Réessayer
+          </button>`;
+      }
+      return;
+    }
 
     // Masquer l'écran de chargement
     this._hideLoader();
@@ -271,11 +289,12 @@ const App = {
         <div style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg, #f5f8f6);gap:20px">
           <img src="assets/logo.jpg" alt="Bodoro" style="width:90px;height:90px;border-radius:50%;object-fit:cover;border:3px solid #c9973a;animation:logo-pulse 1.5s ease infinite">
           <div style="font-size:1.125rem;font-weight:700;color:#084d34">La Côte d'Émeraude</div>
-          <div style="display:flex;gap:6px">
+          <div id="loader-dots" style="display:flex;gap:6px">
             <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease infinite"></div>
             <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease 0.15s infinite"></div>
             <div style="width:8px;height:8px;border-radius:50%;background:#c9973a;animation:dot-bounce 1s ease 0.3s infinite"></div>
           </div>
+          <div id="loader-msg" style="display:flex;flex-direction:column;align-items:center;gap:8px"></div>
         </div>`;
       document.body.appendChild(loader);
     }
