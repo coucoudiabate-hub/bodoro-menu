@@ -293,6 +293,7 @@ img { max-width: 100%; height: auto; }
 .toast-success { background: var(--bodoro); }
 .toast-error { background: var(--danger); }
 .toast-warning { background: var(--gold); }
+.toast-info { background: #3b82f6; }
 @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } }
 @keyframes toast-out { to { transform: translateX(100%); opacity: 0; } }
 
@@ -1052,11 +1053,26 @@ body.banner-open .client-tabs {
   .client-tab { padding: 12px 14px; font-size: 0.8125rem; }
 }
 
+/* --- QR Code cards (admin generator) --- */
+.qr-print-container {
+  background: #fff !important;
+  border-radius: var(--radius-sm);
+}
+.qr-print-container canvas,
+.qr-print-container img {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+/* En mode sombre, les QR codes restent sur fond blanc pour rester scannables */
+.dark .qr-print-container { background: #fff !important; }
+
 /* --- Print --- */
 @media print {
   .header, .admin-sidebar, .floating-cart, .back-to-top, .toast-container { display: none !important; }
   .admin-content { margin-left: 0 !important; padding: 0 !important; }
   body { background: #fff !important; color: #000 !important; }
+  /* Impression des QR codes : un par page par défaut */
+  .qr-print-container { page-break-inside: avoid; }
 }
 
 @keyframes dot-bounce {

@@ -115,8 +115,54 @@ const App = {
     this.render();
     this._updateRestaurantStatus();
     this._updateFooterInfo();
+    // Détection d'un scan QR code (paramètre ?table=X ou hash #menu / #contact)
+    this._handleQRLanding();
     // Refresh status every minute
     setInterval(() => this._updateRestaurantStatus(), 60000);
+  },
+
+  // Détecte un atterrissage via QR code et oriente le client
+  _handleQRLanding() {
+    try {
+      const url = new URL(window.location.href);
+      const table = url.searchParams.get('table');
+      const hash = (window.location.hash || '').replace(/^#/, '');
+
+      // Si on est en mode admin, ne pas rediriger
+      if (this._mode === 'admin') return;
+
+      // Cas 1 : QR code de table → aller au menu + afficher bannière
+      if (table) {
+        // Stocker le numéro de table pour l'ajouter à la commande
+        try { sessionStorage.setItem('bodoro_table', table); } catch {}
+        this.setClientTab('menu');
+        // Bannière d'info
+        const bannerEl = document.getElementById('announcement-banner');
+        const bannerText = document.getElementById('banner-text-content');
+        if (bannerEl && bannerText) {
+          bannerText.textContent = `🪑 Vous êtes à la Table ${table} — commandez directement depuis votre téléphone !`;
+          bannerEl.style.display = 'flex';
+          document.body.classList.add('banner-open');
+        }
+        setTimeout(() => Toast.success(`Bienvenue ! Table ${table} détectée.`), 800);
+        // Nettoyer l'URL pour ne pas afficher le paramètre
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        } catch {}
+        return;
+      }
+
+      // Cas 2 : Hash direct (#menu, #contact, #accueil)
+      if (hash && ['accueil', 'menu', 'contact'].includes(hash)) {
+        this.setClientTab(hash);
+        // Nettoyer le hash
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('QR landing detection failed:', e);
+    }
   },
 
   _setupEvents() {

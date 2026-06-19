@@ -10,7 +10,8 @@ const Toast = {
   },
   success(msg) { this.show(msg, 'success'); },
   error(msg) { this.show(msg, 'error'); },
-  warning(msg) { this.show(msg, 'warning'); }
+  warning(msg) { this.show(msg, 'warning'); },
+  info(msg) { this.show(msg, 'info'); }
 };
 
 // Generic Modal Manager
@@ -180,6 +181,9 @@ const CartManager = {
     if (cart.length === 0) { Toast.error('Votre panier est vide'); return; }
 
     const total = DB.getCartTotal();
+    // Numéro de table (si scan QR)
+    let tableNumber = null;
+    try { tableNumber = sessionStorage.getItem('bodoro_table'); } catch {}
     const order = DB.createOrder({
       clientName: name,
       phone,
@@ -187,13 +191,15 @@ const CartManager = {
       items: JSON.stringify(cart),
       total,
       deliveryType,
-      notes
+      notes: tableNumber ? `${notes ? notes + ' | ' : ''}[Table ${tableNumber}]` : notes,
+      table: tableNumber || ''
     });
 
     // Build WhatsApp message
     const config = DB.getConfig();
+    // tableNumber déjà récupéré ci-dessus (scan QR)
     const itemsText = cart.map(i => `• ${i.emoji} ${i.name} × ${i.quantity} = ${formatPrice((i.promoPrice > 0 ? i.promoPrice : i.price) * i.quantity)}`).join('\n');
-    const msg = `🍽️ *Nouvelle Commande - ${config.restaurantName}*\n\n👤 ${name}\n📱 ${phone}\n${deliveryType === 'livraison' ? '📍 ' + address : '🏪 Retrait sur place'}\n\n*Commande:*\n${itemsText}\n\n💰 *Total: ${formatPrice(total)}*\n${notes ? '\n📝 ' + notes : ''}`;
+    const msg = `🍽️ *Nouvelle Commande - ${config.restaurantName}*\n\n${tableNumber ? `🪑 *Table: ${tableNumber}*\n` : ''}👤 ${name}\n📱 ${phone}\n${deliveryType === 'livraison' ? '📍 ' + address : '🏪 Retrait sur place'}\n\n*Commande:*\n${itemsText}\n\n💰 *Total: ${formatPrice(total)}*\n${notes ? '\n📝 ' + notes : ''}`;
 
     DB.clearCart();
     CartDrawer.render();

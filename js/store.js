@@ -75,9 +75,26 @@ const DB = {
       openDays: 'Lundi - Samedi', bannerText: '', bannerActive: false,
       adminPassword: 'bodoro2024', deliveryFee: 0, currency: 'FCFA',
       instagram: '', facebook: '', tiktok: '',
-      aboutText: "Restaurant ivoirien authentique proposant les meilleures saveurs d'Afrique de l'Ouest."
+      aboutText: "Restaurant ivoirien authentique proposant les meilleures saveurs d'Afrique de l'Ouest.",
+      // Localisation GPS - La Côte d'Émeraude Chez Bodoro
+      placeName: "LA CÔTE D'EMERAUDE CHEZ BODORO",
+      latitude: 6.73714,
+      longitude: -5.2853533,
+      mapZoom: 15,
+      // URL publique du site (pour générer les QR codes)
+      // Si vide, on utilise automatiquement window.location.origin
+      siteUrl: ""
     };
     return DB._cache.config ? Object.assign({}, defaults, DB._cache.config) : defaults;
+  },
+  // Renvoie l'URL publique du site (configurée ou détectée automatiquement)
+  getSiteUrl() {
+    const cfg = DB.getConfig();
+    const url = (cfg.siteUrl || '').trim();
+    if (url) return url.replace(/\/+$/, '');
+    // Fallback : URL courante (sans paramètres ni hash)
+    try { return window.location.origin + window.location.pathname.replace(/[^/]*$/, ''); }
+    catch { return 'https://bodoro.example.com/'; }
   },
   async updateConfig(updates) {
     const config = Object.assign({}, DB.getConfig(), updates, { updatedAt: DB._now() });

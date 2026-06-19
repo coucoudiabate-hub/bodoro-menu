@@ -382,17 +382,73 @@ const ClientPages = {
       </div>`;
     }
 
-    // Map
-    html += `<div class="card" style="margin-bottom:32px">
-      <h3 style="font-weight:700;margin-bottom:16px">📍 Notre emplacement</h3>
-      <div style="border-radius:var(--radius-sm);overflow:hidden;margin-bottom:12px">
+    // Map - Plan de localisation avec coordonnées GPS précises
+    const lat = parseFloat(config.latitude);
+    const lng = parseFloat(config.longitude);
+    const hasCoords = !isNaN(lat) && !isNaN(lng);
+    const zoom = parseInt(config.mapZoom) || 15;
+    const placeName = config.placeName || config.restaurantName || 'Bodoro';
+    // On utilise les coordonnées si disponibles, sinon fallback sur l'adresse
+    const mapQuery = hasCoords ? `${lat},${lng}` : encodeURIComponent(config.address);
+    const mapEmbedSrc = hasCoords
+      ? `https://maps.google.com/maps?q=${lat},${lng}&z=${zoom}&output=embed&hl=fr`
+      : `https://maps.google.com/maps?q=${encodeURIComponent(config.address)}&output=embed&z=${zoom}&hl=fr`;
+    const mapLink = hasCoords
+      ? `https://www.google.com/maps/place/${encodeURIComponent(placeName)}/@${lat},${lng},${zoom}z`
+      : `https://maps.google.com/?q=${encodeURIComponent(config.address)}`;
+    // Lien d'itinéraire (directions) - utilise la position actuelle de l'utilisateur comme point de départ
+    const directionsLink = hasCoords
+      ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=&travelmode=driving&hl=fr`
+      : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(config.address)}&travelmode=driving&hl=fr`;
+    const coordsText = hasCoords ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
+
+    html += `<div class="card" style="margin-bottom:32px;overflow:hidden">
+      <h3 style="font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px">📍 Plan de localisation</h3>
+      <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:16px">${placeName}</p>
+
+      <div style="border-radius:var(--radius-sm);overflow:hidden;margin-bottom:16px;box-shadow:var(--shadow-sm);position:relative">
         <iframe
-          src="https://maps.google.com/maps?q=${encodeURIComponent(config.address)}&output=embed&z=15"
-          width="100%" height="240" style="border:0;display:block" allowfullscreen="" loading="lazy"
-          referrerpolicy="no-referrer-when-downgrade" title="Localisation du restaurant">
+          src="${mapEmbedSrc}"
+          width="100%" height="320" style="border:0;display:block;width:100%" allowfullscreen="" loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade" title="Plan de localisation - ${placeName}">
         </iframe>
       </div>
-      <a href="https://maps.google.com/?q=${encodeURIComponent(config.address)}" target="_blank" class="btn btn-outline btn-sm">📍 Ouvrir dans Google Maps</a>
+
+      ${hasCoords ? `
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <!-- Coordonnées GPS -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;background:var(--success-bg);border:1px solid var(--border-light);border-radius:var(--radius-sm);flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--bodoro),var(--bodoro-dark));display:flex;align-items:center;justify-content:center;font-size:1.125rem;flex-shrink:0">🎯</div>
+            <div>
+              <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Coordonnées GPS</div>
+              <div style="font-family:'Courier New',monospace;font-weight:700;font-size:1rem;color:var(--text)">
+                <span style="color:var(--bodoro)">Lat:</span> ${lat.toFixed(5)}° &nbsp;|&nbsp; <span style="color:var(--bodoro)">Lng:</span> ${lng.toFixed(5)}°
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="ClientPages.copyCoordinates('${coordsText}')" title="Copier les coordonnées GPS">
+            📋 Copier
+          </button>
+        </div>
+
+        <!-- Boutons d'action -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a href="${directionsLink}" target="_blank" rel="noopener" class="btn btn-primary" style="flex:1;min-width:180px;text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px">
+            🧭 Itinéraire
+          </a>
+          <a href="${mapLink}" target="_blank" rel="noopener" class="btn btn-outline" style="flex:1;min-width:180px;text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px">
+            🗺️ Ouvrir dans Maps
+          </a>
+          <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}&hl=fr" target="_blank" rel="noopener" class="btn btn-outline" style="text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px" title="Voir le lieu sur Google Maps">
+            🔍 Voir le lieu
+          </a>
+        </div>
+      </div>
+      ` : `
+      <a href="${mapLink}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">📍 Ouvrir dans Google Maps</a>
+      <p style="margin-top:12px;font-size:0.8125rem;color:var(--text-muted)">💡 Astuce : ajoutez les coordonnées GPS dans la configuration admin pour un affichage plus précis.</p>
+      `}
     </div>`;
 
     // WhatsApp CTA
@@ -404,5 +460,34 @@ const ClientPages = {
 
     html += '</div>';
     container.innerHTML = html;
+  },
+
+  // ---- Copier les coordonnées GPS dans le presse-papiers ----
+  async copyCoordinates(coords) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(coords);
+      } else {
+        // Fallback pour les navigateurs plus anciens
+        const ta = document.createElement('textarea');
+        ta.value = coords;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      if (typeof Toast !== 'undefined') {
+        Toast.success('Coordonnées copiées : ' + coords);
+      } else {
+        alert('Coordonnées copiées : ' + coords);
+      }
+    } catch (e) {
+      console.warn('Copie impossible:', e);
+      if (typeof Toast !== 'undefined') {
+        Toast.error('Impossible de copier les coordonnées');
+      }
+    }
   }
 };

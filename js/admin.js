@@ -1316,6 +1316,11 @@ const AdminPages = {
           <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Slogan</label>
           <input type="text" id="cfg-slogan" value="${config.slogan||''}" class="cfg-input" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem">
         </div>
+        <div>
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">🌐 URL publique du site (pour QR codes)</label>
+          <input type="url" id="cfg-site-url" value="${config.siteUrl||''}" class="cfg-input" placeholder="https://bodoro.netlify.app" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem">
+          <p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;line-height:1.4">L'URL publique de votre site déployé. Sert à générer les QR codes (onglet « QR Codes »). Si vide, l'URL courante est utilisée.</p>
+        </div>
       </div>
     </div>`;
 
@@ -1338,6 +1343,45 @@ const AdminPages = {
         <div>
           <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">WhatsApp</label>
           <input type="text" id="cfg-whatsapp" value="${config.whatsapp||''}" class="cfg-input" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" placeholder="+225XXXXXXXXXX">
+        </div>
+      </div>
+    </div>`;
+
+    // Localisation GPS - Plan de localisation
+    html += `<div class="card" style="padding:20px;grid-column:1 / -1">
+      <h3 style="font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px">🗺️ Localisation GPS & Plan</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Nom du lieu (Google Maps)</label>
+            <input type="text" id="cfg-place-name" value="${config.placeName||''}" class="cfg-input" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" placeholder="Ex: LA CÔTE D'EMERAUDE CHEZ BODORO">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Latitude</label>
+              <input type="number" step="any" id="cfg-latitude" value="${config.latitude||''}" class="cfg-input" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" placeholder="Ex: 6.73714">
+            </div>
+            <div>
+              <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Longitude</label>
+              <input type="number" step="any" id="cfg-longitude" value="${config.longitude||''}" class="cfg-input" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" placeholder="Ex: -5.2853533">
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Niveau de zoom (1-20)</label>
+            <div style="display:flex;align-items:center;gap:12px">
+              <input type="range" min="1" max="20" step="1" id="cfg-map-zoom" value="${config.mapZoom||15}" class="cfg-input" style="flex:1;accent-color:var(--bodoro)" oninput="AdminPages._updateMapPreview()">
+              <span id="cfg-map-zoom-val" style="font-weight:700;font-size:0.9375rem;min-width:32px;text-align:center;color:var(--bodoro)">${config.mapZoom||15}</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-outline btn-sm" onclick="AdminPages._useMyPosition()" title="Détecter ma position actuelle">📍 Ma position</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="AdminPages._openMapsPicker()" title="Ouvrir Google Maps pour récupérer des coordonnées">🔍 Ouvrir Maps</button>
+          </div>
+          <p style="font-size:0.75rem;color:var(--text-muted);line-height:1.5;margin-top:4px">💡 Astuce : cliquez sur « Ouvrir Maps », recherchez votre restaurant, faites un clic droit sur le lieu → les coordonnées s'affichent. Cliquez dessus pour les copier, puis collez-les ici.</p>
+        </div>
+        <div>
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Aperçu du plan</label>
+          <div id="cfg-map-preview" style="border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border-light);aspect-ratio:4/3;background:var(--bg-card-hover)"></div>
         </div>
       </div>
     </div>`;
@@ -1417,6 +1461,72 @@ const AdminPages = {
       input.addEventListener('change', AdminPages._markConfigDirty);
       input.addEventListener('input', AdminPages._markConfigDirty);
     });
+
+    // Live preview map + attach input listeners on GPS fields
+    ['cfg-place-name', 'cfg-latitude', 'cfg-longitude'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', AdminPages._updateMapPreview);
+    });
+    AdminPages._updateMapPreview();
+  },
+
+  // Met à jour l'aperçu de la carte en temps réel dans la config admin
+  _updateMapPreview() {
+    const preview = document.getElementById('cfg-map-preview');
+    if (!preview) return;
+    const latEl = document.getElementById('cfg-latitude');
+    const lngEl = document.getElementById('cfg-longitude');
+    const zoomEl = document.getElementById('cfg-map-zoom');
+    const zoomVal = document.getElementById('cfg-map-zoom-val');
+    const lat = parseFloat(latEl?.value);
+    const lng = parseFloat(lngEl?.value);
+    const zoom = parseInt(zoomEl?.value) || 15;
+    if (zoomVal) zoomVal.textContent = zoom;
+
+    if (isNaN(lat) || isNaN(lng)) {
+      preview.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:0.875rem;text-align:center;padding:16px">Entrez une latitude et une longitude valides pour voir l\'aperçu</div>';
+      return;
+    }
+    preview.innerHTML = `<iframe
+      src="https://maps.google.com/maps?q=${lat},${lng}&z=${zoom}&output=embed&hl=fr"
+      style="border:0;display:block;width:100%;height:100%" allowfullscreen="" loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade" title="Aperçu plan"></iframe>`;
+  },
+
+  // Détecte la position GPS actuelle de l'admin (géolocalisation navigateur)
+  _useMyPosition() {
+    if (!navigator.geolocation) {
+      Toast.error('La géolocalisation n\'est pas supportée par ce navigateur');
+      return;
+    }
+    Toast.info('Détection de votre position...');
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const latEl = document.getElementById('cfg-latitude');
+        const lngEl = document.getElementById('cfg-longitude');
+        if (latEl) { latEl.value = pos.coords.latitude.toFixed(6); latEl.dispatchEvent(new Event('input')); }
+        if (lngEl) { lngEl.value = pos.coords.longitude.toFixed(6); lngEl.dispatchEvent(new Event('input')); }
+        AdminPages._markConfigDirty();
+        Toast.success('Position détectée : ' + pos.coords.latitude.toFixed(5) + ', ' + pos.coords.longitude.toFixed(5));
+      },
+      err => {
+        console.warn(err);
+        Toast.error('Impossible d\'obtenir votre position : ' + (err.message || 'permission refusée'));
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  },
+
+  // Ouvre Google Maps dans un nouvel onglet pour récupérer des coordonnées
+  _openMapsPicker() {
+    const latEl = document.getElementById('cfg-latitude');
+    const lngEl = document.getElementById('cfg-longitude');
+    const lat = parseFloat(latEl?.value);
+    const lng = parseFloat(lngEl?.value);
+    const url = (!isNaN(lat) && !isNaN(lng))
+      ? `https://www.google.com/maps/@${lat},${lng},15z`
+      : 'https://www.google.com/maps';
+    window.open(url, '_blank', 'noopener');
   },
 
   _markConfigDirty() {
@@ -1445,6 +1555,7 @@ const AdminPages = {
     const updates = {
       restaurantName: document.getElementById('cfg-name')?.value.trim() || '',
       slogan: document.getElementById('cfg-slogan')?.value.trim() || '',
+      siteUrl: document.getElementById('cfg-site-url')?.value.trim() || '',
       address: document.getElementById('cfg-address')?.value.trim() || '',
       phone1: document.getElementById('cfg-phone1')?.value.trim() || '',
       phone2: document.getElementById('cfg-phone2')?.value.trim() || '',
@@ -1457,7 +1568,12 @@ const AdminPages = {
       adminPassword: (document.getElementById('cfg-password')?.value || '').trim() || 'bodoro2024',
       instagram: (document.getElementById('cfg-instagram')?.value || '').trim(),
       facebook: (document.getElementById('cfg-facebook')?.value || '').trim(),
-      tiktok: (document.getElementById('cfg-tiktok')?.value || '').trim()
+      tiktok: (document.getElementById('cfg-tiktok')?.value || '').trim(),
+      // Champs de localisation GPS
+      placeName: document.getElementById('cfg-place-name')?.value.trim() || '',
+      latitude: parseFloat(document.getElementById('cfg-latitude')?.value) || 0,
+      longitude: parseFloat(document.getElementById('cfg-longitude')?.value) || 0,
+      mapZoom: parseInt(document.getElementById('cfg-map-zoom')?.value) || 15
     };
 
     DB.updateConfig(updates);
@@ -1470,6 +1586,413 @@ const AdminPages = {
   // ================================================================
   // SHARED HELPERS
   // ================================================================
+
+  // ================================================================
+  // 10. QR CODES - Générateur de QR codes imprimables
+  // ================================================================
+
+  // Types de QR codes prédéfinis
+  _qrTypes: [
+    { id: 'site',       label: 'Site principal',        icon: '🌐', desc: 'Page d\'accueil du restaurant' },
+    { id: 'menu',       label: 'Menu direct',           icon: '🍽️', desc: 'Accès direct au menu de commande' },
+    { id: 'whatsapp',   label: 'WhatsApp commande',     icon: '💬', desc: 'Ouvre WhatsApp pour commander' },
+    { id: 'maps',       label: 'Localisation Maps',     icon: '📍', desc: 'Itinéraire vers le restaurant' },
+    { id: 'tel',        label: 'Appeler',               icon: '📞', desc: 'Lance un appel téléphonique' },
+    { id: 'tables',     label: 'QR Codes par table',    icon: '🪑', desc: 'Génère un QR code par table (1 à N)' }
+  ],
+
+  renderQRCodes() {
+    const container = document.getElementById('admin-content');
+    const config = DB.getConfig();
+    const siteUrl = DB.getSiteUrl();
+    const restaurantName = config.restaurantName || 'Bodoro';
+
+    let html = '<div class="page-enter">';
+
+    // Header
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px">
+      <h1 style="font-weight:800;font-size:1.5rem;display:flex;align-items:center;gap:10px">📱 Générateur de QR Codes</h1>
+      <button class="btn btn-outline btn-sm" onclick="AdminPages._printAllQRCodes()">🖨️ Imprimer tout</button>
+    </div>
+    <p style="color:var(--text-secondary);font-size:0.9375rem;margin-bottom:20px">
+      Génère des QR codes imprimables que vos clients peuvent scanner avec leur téléphone pour accéder directement à votre site de commande.
+      Imprimez-les, plastifiez-les et placez-les sur les tables, à l'entrée ou sur vos emballages.
+    </p>`;
+
+    // Alert si URL du site non configurée
+    if (!config.siteUrl) {
+      html += `<div style="background:var(--warning-bg);border:1px solid var(--gold);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
+        <span style="font-size:1.25rem">💡</span>
+        <div style="flex:1;font-size:0.875rem;color:var(--text-secondary);line-height:1.5">
+          <strong>URL du site non configurée.</strong> L'URL détectée automatiquement est : <code style="background:var(--bg-card-hover);padding:2px 6px;border-radius:4px;font-size:0.8125rem">${siteUrl}</code><br>
+          Pour des QR codes valides en production, allez dans <strong>Configuration → Restaurant</strong> et renseignez l'URL publique de votre site (ex: https://bodoro.netlify.app).
+        </div>
+      </div>`;
+    }
+
+    // Section 1: QR codes prédéfinis (cartes)
+    html += `<h2 style="font-weight:700;margin-bottom:12px;font-size:1.125rem">🎯 QR Codes prêts à l'emploi</h2>`;
+    html += `<div id="qr-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:32px">`;
+
+    this._qrTypes.filter(t => t.id !== 'tables').forEach(type => {
+      const url = AdminPages._getQrUrl(type.id, null);
+      html += `<div class="card" style="padding:20px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center">
+        <div style="display:flex;align-items:center;gap:8px;align-self:stretch;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:1.5rem">${type.icon}</span>
+            <strong style="font-size:1rem">${type.label}</strong>
+          </div>
+        </div>
+        <p style="font-size:0.8125rem;color:var(--text-muted);margin:0;align-self:stretch">${type.desc}</p>
+        <div id="qr-preview-${type.id}" class="qr-print-container" style="background:#fff;padding:12px;border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);display:flex;align-items:center;justify-content:center;width:200px;height:200px"></div>
+        <div style="font-family:'Courier New',monospace;font-size:0.6875rem;color:var(--text-muted);word-break:break-all;max-width:100%;line-height:1.4">${url}</div>
+        <div style="display:flex;gap:8px;width:100%">
+          <button class="btn btn-outline btn-sm" style="flex:1" onclick="AdminPages._downloadQR('${type.id}', null)">⬇️ PNG</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="AdminPages._printSingleQR('${type.id}', null)">🖨️ Imprimer</button>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+
+    // Section 2: QR codes par table
+    html += `<div class="card" style="padding:24px;margin-bottom:32px">
+      <h2 style="font-weight:700;margin-bottom:8px;font-size:1.125rem;display:flex;align-items:center;gap:8px">🪑 QR Codes par table</h2>
+      <p style="color:var(--text-secondary);font-size:0.875rem;margin-bottom:16px">
+        Générez un QR code unique pour chaque table. Quand un client scanne le QR de sa table, il arrive directement sur le site avec le numéro de table pré-rempli.
+      </p>
+
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Nombre de tables</label>
+          <input type="number" id="qr-table-count" min="1" max="50" value="10" style="width:100px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" oninput="AdminPages._renderTableQRCodes()">
+        </div>
+        <div>
+          <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.8125rem">Préfixe (optionnel)</label>
+          <input type="text" id="qr-table-prefix" value="Table" placeholder="Table" style="width:120px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.9375rem" oninput="AdminPages._renderTableQRCodes()">
+        </div>
+        <button class="btn btn-primary" onclick="AdminPages._printAllTableQRCodes()">🖨️ Imprimer toutes les tables</button>
+        <button class="btn btn-outline" onclick="AdminPages._downloadAllTableQRCodes()">⬇️ Télécharger tout (ZIP)</button>
+      </div>
+
+      <div id="qr-tables-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px"></div>
+    </div>`;
+
+    // Section 3: Aide à l'impression
+    html += `<div class="card" style="padding:20px;background:var(--success-bg);border-color:var(--bodoro)">
+      <h3 style="font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">💡 Conseils d'impression & d'utilisation</h3>
+      <ul style="margin:0;padding-left:20px;font-size:0.875rem;color:var(--text-secondary);line-height:1.8">
+        <li><strong>Format recommandé :</strong> imprimez sur papier photo ou papier couché 200g/m² pour une meilleure durabilité.</li>
+        <li><strong>Plastification :</strong> faites plastifier les QR codes pour résister aux taches et à l'humidité sur les tables.</li>
+        <li><strong>Taille minimale :</strong> 5×5 cm pour garantir un scan rapide par tous les smartphones.</li>
+        <li><strong>Placement :</strong> posez les QR codes sur chaque table, à l'entrée, et sur les emballages de livraison.</li>
+        <li><strong>Test :</strong> avant impression en masse, testez le scan avec plusieurs téléphones (iPhone, Android).</li>
+        <li><strong>Mise à jour :</strong> si votre URL change, regénérez les QR codes — les anciens ne fonctionneront plus.</li>
+      </ul>
+    </div>`;
+
+    html += '</div>';
+    container.innerHTML = html;
+
+    // Générer les QR codes après injection dans le DOM
+    requestAnimationFrame(() => {
+      // QR codes prédéfinis
+      AdminPages._qrTypes.filter(t => t.id !== 'tables').forEach(type => {
+        AdminPages._renderQRCode(`qr-preview-${type.id}`, AdminPages._getQrUrl(type.id, null), 180);
+      });
+      // QR codes par table
+      AdminPages._renderTableQRCodes();
+    });
+  },
+
+  // Calcule l'URL à encoder dans le QR code selon le type
+  _getQrUrl(type, tableNumber) {
+    const config = DB.getConfig();
+    const baseUrl = DB.getSiteUrl();
+    const sep = baseUrl.indexOf('?') >= 0 ? '&' : '?';
+
+    switch (type) {
+      case 'site':
+        return baseUrl;
+      case 'menu':
+        return baseUrl + (baseUrl.indexOf('#') >= 0 ? '' : '#menu');
+      case 'whatsapp':
+        return `https://wa.me/${(config.whatsapp || '').replace(/[^0-9]/g, '')}`;
+      case 'maps':
+        const lat = parseFloat(config.latitude);
+        const lng = parseFloat(config.longitude);
+        if (!isNaN(lat) && !isNaN(lng)) return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}&hl=fr`;
+        return `https://www.google.com/maps?q=${encodeURIComponent(config.address || '')}`;
+      case 'tel':
+        const phone = (config.phone1 || '').replace(/[^0-9+]/g, '');
+        return `tel:${phone}`;
+      case 'table':
+        return `${baseUrl}${sep}table=${encodeURIComponent(tableNumber)}#menu`;
+      default:
+        return baseUrl;
+    }
+  },
+
+  // Génère un QR code dans un élément conteneur
+  _renderQRCode(containerId, url, size) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = ''; // reset
+    try {
+      new QRCode(el, {
+        text: url,
+        width: size,
+        height: size,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    } catch (e) {
+      console.error('QR generation failed:', e);
+      el.innerHTML = '<div style="color:var(--danger);font-size:0.75rem;text-align:center;padding:20px">Erreur génération QR</div>';
+    }
+  },
+
+  // Récupère l'image (canvas) d'un QR code pour téléchargement
+  _getQRDataURL(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return null;
+    const canvas = el.querySelector('canvas');
+    const img = el.querySelector('img');
+    if (canvas) return canvas.toDataURL('image/png');
+    if (img && img.src) return img.src;
+    return null;
+  },
+
+  // Télécharge un QR code en PNG
+  _downloadQR(type, tableNumber) {
+    const containerId = tableNumber !== null
+      ? `qr-table-${tableNumber}`
+      : `qr-preview-${type}`;
+    const dataUrl = AdminPages._getQRDataURL(containerId);
+    if (!dataUrl) { Toast.error('Impossible de générer l\'image'); return; }
+
+    const config = DB.getConfig();
+    const prefix = (config.restaurantName || 'Bodoro').replace(/[^a-zA-Z0-9]/g, '_');
+    let filename;
+    if (tableNumber !== null) {
+      const tblPrefix = (document.getElementById('qr-table-prefix')?.value || 'Table').replace(/\s+/g, '_');
+      filename = `${prefix}_QR_${tblPrefix}_${tableNumber}.png`;
+    } else {
+      filename = `${prefix}_QR_${type}.png`;
+    }
+
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    Toast.success(`Téléchargé : ${filename}`);
+  },
+
+  // Télécharge tous les QR codes des tables un par un (pas de ZIP sans lib supplémentaire)
+  _downloadAllTableQRCodes() {
+    const count = parseInt(document.getElementById('qr-table-count')?.value) || 0;
+    if (count <= 0) { Toast.error('Aucune table à télécharger'); return; }
+    let i = 1;
+    const next = () => {
+      if (i > count) { Toast.success(`${count} QR codes téléchargés`); return; }
+      AdminPages._downloadQR('table', i);
+      i++;
+      setTimeout(next, 300); // petit délai pour laisser le navigateur télécharger
+    };
+    next();
+  },
+
+  // Rendu de la grille des QR codes par table
+  _renderTableQRCodes() {
+    const count = parseInt(document.getElementById('qr-table-count')?.value) || 0;
+    const prefix = document.getElementById('qr-table-prefix')?.value || 'Table';
+    const grid = document.getElementById('qr-tables-grid');
+    if (!grid) return;
+
+    if (count <= 0 || count > 50) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px">Entrez un nombre entre 1 et 50</div>';
+      return;
+    }
+
+    let html = '';
+    for (let i = 1; i <= count; i++) {
+      const url = AdminPages._getQrUrl('table', i);
+      html += `<div class="card qr-print-container" style="padding:16px;display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center">
+        <div style="font-weight:700;font-size:0.9375rem;color:var(--bodoro)">${prefix} ${i}</div>
+        <div id="qr-table-${i}" style="background:#fff;padding:8px;border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);width:160px;height:160px;display:flex;align-items:center;justify-content:center"></div>
+        <div style="display:flex;gap:6px;width:100%">
+          <button class="btn btn-outline btn-sm" style="flex:1;font-size:0.75rem" onclick="AdminPages._downloadQR('table', ${i})">⬇️ PNG</button>
+          <button class="btn btn-primary btn-sm" style="flex:1;font-size:0.75rem" onclick="AdminPages._printSingleQR('table', ${i})">🖨️</button>
+        </div>
+      </div>`;
+    }
+    grid.innerHTML = html;
+
+    // Génère chaque QR code
+    for (let i = 1; i <= count; i++) {
+      AdminPages._renderQRCode(`qr-table-${i}`, AdminPages._getQrUrl('table', i), 144);
+    }
+  },
+
+  // Imprime un seul QR code (ouvre une fenêtre d'impression dédiée)
+  _printSingleQR(type, tableNumber) {
+    const containerId = tableNumber !== null
+      ? `qr-table-${tableNumber}`
+      : `qr-preview-${type}`;
+    const dataUrl = AdminPages._getQRDataURL(containerId);
+    if (!dataUrl) { Toast.error('QR code non disponible'); return; }
+
+    const config = DB.getConfig();
+    const restaurantName = config.restaurantName || 'Bodoro';
+    const url = AdminPages._getQrUrl(type, tableNumber);
+    let title;
+    if (type === 'table') {
+      const prefix = document.getElementById('qr-table-prefix')?.value || 'Table';
+      title = `${prefix} ${tableNumber}`;
+    } else {
+      const typeObj = AdminPages._qrTypes.find(t => t.id === type);
+      title = typeObj ? typeObj.label : 'QR Code';
+    }
+
+    AdminPages._openPrintWindow(dataUrl, title, restaurantName, url);
+  },
+
+  // Imprime tous les QR codes prédéfinis dans une seule fenêtre
+  _printAllQRCodes() {
+    const config = DB.getConfig();
+    const restaurantName = config.restaurantName || 'Bodoro';
+    const items = AdminPages._qrTypes
+      .filter(t => t.id !== 'tables')
+      .map(type => {
+        const dataUrl = AdminPages._getQRDataURL(`qr-preview-${type.id}`);
+        if (!dataUrl) return null;
+        return {
+          dataUrl,
+          title: type.label,
+          url: AdminPages._getQrUrl(type.id, null)
+        };
+      })
+      .filter(Boolean);
+
+    if (items.length === 0) { Toast.error('Aucun QR code à imprimer'); return; }
+    AdminPages._openPrintWindowMultiple(items, restaurantName);
+  },
+
+  // Imprime tous les QR codes des tables
+  _printAllTableQRCodes() {
+    const count = parseInt(document.getElementById('qr-table-count')?.value) || 0;
+    const prefix = document.getElementById('qr-table-prefix')?.value || 'Table';
+    if (count <= 0) { Toast.error('Aucune table à imprimer'); return; }
+
+    const config = DB.getConfig();
+    const restaurantName = config.restaurantName || 'Bodoro';
+    const items = [];
+    for (let i = 1; i <= count; i++) {
+      const dataUrl = AdminPages._getQRDataURL(`qr-table-${i}`);
+      if (dataUrl) {
+        items.push({
+          dataUrl,
+          title: `${prefix} ${i}`,
+          url: AdminPages._getQrUrl('table', i)
+        });
+      }
+    }
+    if (items.length === 0) { Toast.error('QR codes non générés'); return; }
+    AdminPages._openPrintWindowMultiple(items, restaurantName, true);
+  },
+
+  // Ouvre une fenêtre d'impression avec UN QR code (grand format)
+  _openPrintWindow(dataUrl, title, restaurantName, url) {
+    const w = window.open('', '_blank', 'width=600,height=800');
+    if (!w) { Toast.error('Veuillez autoriser les pop-ups pour imprimer'); return; }
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head>
+      <meta charset="UTF-8">
+      <title>${title} - ${restaurantName}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Nunito', Arial, sans-serif; padding: 30px; text-align: center; color: #1a2e23; }
+        .header { margin-bottom: 20px; }
+        .restaurant { font-size: 1.5rem; font-weight: 800; color: #0d6e4a; margin-bottom: 4px; }
+        .subtitle { font-size: 0.9rem; color: #7a9488; }
+        .qr-wrapper { display: inline-block; padding: 20px; background: #fff; border: 3px solid #0d6e4a; border-radius: 16px; margin: 20px 0; }
+        .qr-wrapper img { width: 350px; height: 350px; display: block; }
+        .qr-title { font-size: 1.5rem; font-weight: 700; margin: 16px 0 8px; color: #084d34; }
+        .instructions { background: #f5f8f6; border-radius: 12px; padding: 16px; margin-top: 20px; font-size: 0.9375rem; line-height: 1.6; color: #4a6558; }
+        .instructions strong { color: #0d6e4a; }
+        .url { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #7a9488; word-break: break-all; margin-top: 12px; }
+        .footer { margin-top: 30px; font-size: 0.75rem; color: #7a9488; border-top: 1px solid #e5ede8; padding-top: 12px; }
+        @media print { body { padding: 15px; } .no-print { display: none; } }
+        .print-btn { margin-top: 20px; padding: 10px 24px; background: #0d6e4a; color: #fff; border: none; border-radius: 8px; font-size: 0.9375rem; cursor: pointer; font-weight: 600; }
+        .print-btn:hover { background: #084d34; }
+      </style>
+    </head><body>
+      <div class="header">
+        <div class="restaurant">${restaurantName}</div>
+        <div class="subtitle">Scannez pour commander</div>
+      </div>
+      <div class="qr-wrapper"><img src="${dataUrl}" alt="QR Code ${title}"></div>
+      <div class="qr-title">${title}</div>
+      <div class="instructions">
+        📱 <strong>Comment commander :</strong><br>
+        1. Ouvrez l'appareil photo de votre téléphone<br>
+        2. Pointez vers le QR code<br>
+        3. Touchez la notification pour ouvrir le site<br>
+        4. Choisissez vos plats et commandez !
+      </div>
+      <div class="url">${url}</div>
+      <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimer</button>
+      <div class="footer">${restaurantName} • QR Code généré le ${new Date().toLocaleDateString('fr-FR')}</div>
+    </body></html>`);
+    w.document.close();
+    // Impression auto après chargement de l'image
+    w.onload = () => { setTimeout(() => w.print(), 300); };
+  },
+
+  // Ouvre une fenêtre d'impression avec PLUSIEURS QR codes (format grille)
+  _openPrintWindowMultiple(items, restaurantName, isTables = false) {
+    const w = window.open('', '_blank', 'width=900,height=900');
+    if (!w) { Toast.error('Veuillez autoriser les pop-ups pour imprimer'); return; }
+
+    const cardsHtml = items.map(item => `
+      <div class="qr-card">
+        <div class="qr-card-img"><img src="${item.dataUrl}" alt="QR ${item.title}"></div>
+        <div class="qr-card-title">${item.title}</div>
+        <div class="qr-card-hint">📱 Scannez pour commander</div>
+      </div>
+    `).join('');
+
+    w.document.write(`<!DOCTYPE html><html lang="fr"><head>
+      <meta charset="UTF-8">
+      <title>QR Codes - ${restaurantName}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Nunito', Arial, sans-serif; padding: 20px; color: #1a2e23; }
+        h1 { text-align: center; font-size: 1.5rem; color: #0d6e4a; margin-bottom: 4px; }
+        .subtitle { text-align: center; font-size: 0.875rem; color: #7a9488; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        @media print { .grid { grid-template-columns: repeat(3, 1fr); } }
+        .qr-card { border: 2px solid #0d6e4a; border-radius: 12px; padding: 16px; text-align: center; page-break-inside: avoid; background: #fff; }
+        .qr-card-img { display: flex; justify-content: center; margin-bottom: 10px; }
+        .qr-card-img img { width: 180px; height: 180px; display: block; }
+        .qr-card-title { font-size: 1rem; font-weight: 700; color: #084d34; margin-bottom: 4px; }
+        .qr-card-hint { font-size: 0.75rem; color: #7a9488; }
+        .header-img { text-align: center; margin-bottom: 12px; }
+        .print-btn { display: block; margin: 20px auto 0; padding: 10px 24px; background: #0d6e4a; color: #fff; border: none; border-radius: 8px; font-size: 0.9375rem; cursor: pointer; font-weight: 600; }
+        .print-btn:hover { background: #084d34; }
+        @media print { .no-print { display: none; } body { padding: 10px; } }
+      </style>
+    </head><body>
+      <h1>${restaurantName}</h1>
+      <div class="subtitle">${isTables ? 'QR Codes par table' : 'QR Codes de commande'} • ${items.length} code${items.length > 1 ? 's' : ''}</div>
+      <div class="grid">${cardsHtml}</div>
+      <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimer la page</button>
+    </body></html>`);
+    w.document.close();
+    w.onload = () => { setTimeout(() => w.print(), 500); };
+  },
+
   // ================================================================
   // RENDER DISPATCHER
   // ================================================================
@@ -1489,6 +2012,7 @@ const AdminPages = {
       case 'testimonials': AdminPages.renderTestimonials(); break;
       case 'promotions': AdminPages.renderPromotions(); break;
       case 'csv': AdminPages.renderCSV(); break;
+      case 'qrcodes': AdminPages.renderQRCodes(); break;
       case 'config': AdminPages.renderConfig(); break;
       default: AdminPages.renderLogin();
     }
