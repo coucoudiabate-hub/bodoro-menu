@@ -137,13 +137,7 @@ const App = {
         try { sessionStorage.setItem('bodoro_table', table); } catch {}
         this.setClientTab('menu');
         // Bannière d'info
-        const bannerEl = document.getElementById('announcement-banner');
-        const bannerText = document.getElementById('banner-text-content');
-        if (bannerEl && bannerText) {
-          bannerText.textContent = `🪑 Vous êtes à la Table ${table} — commandez directement depuis votre téléphone !`;
-          bannerEl.style.display = 'flex';
-          document.body.classList.add('banner-open');
-        }
+        this._showTableBanner(table);
         setTimeout(() => Toast.success(`Bienvenue ! Table ${table} détectée.`), 800);
         // Nettoyer l'URL pour ne pas afficher le paramètre
         try {
@@ -160,9 +154,35 @@ const App = {
           window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
         } catch {}
       }
+
+      // Cas 3 : rechargement de page alors qu'une table est en sessionStorage
+      // (le param ?table=X a été nettoyé de l'URL, mais on garde le contexte table)
+      try {
+        const storedTable = sessionStorage.getItem('bodoro_table');
+        if (storedTable && !table) {
+          this._showTableBanner(storedTable, true);
+        }
+      } catch {}
     } catch (e) {
       console.warn('QR landing detection failed:', e);
     }
+  },
+
+  // Affiche la bannière "Table X" sans écraser une bannière admin active
+  _showTableBanner(tableNumber, isReload = false) {
+    const bannerEl = document.getElementById('announcement-banner');
+    const bannerText = document.getElementById('banner-text-content');
+    if (!bannerEl || !bannerText) return;
+    const config = DB.getConfig();
+    // Si une bannière admin est active ET qu'on n'est pas sur un reload, on la préserve
+    // et on affiche juste un toast à la place.
+    if (!isReload && config.bannerActive && config.bannerText) {
+      // Bannière admin déjà affichée par renderAccueil — on ne l'écrase pas
+      return;
+    }
+    bannerText.textContent = `🪑 Vous êtes à la Table ${tableNumber} — commandez directement depuis votre téléphone !`;
+    bannerEl.style.display = 'flex';
+    document.body.classList.add('banner-open');
   },
 
   _setupEvents() {

@@ -177,10 +177,13 @@ const DB = {
   getOrder(id)    { return DB.getOrders().find(o => o.id===id); },
   getTodayOrders(){ const t = DB._now().split('T')[0]; return DB.getOrders().filter(o => (o.createdAt||'').startsWith(t)); },
   async createOrder(data) {
+    // BUG FIX (v3.6): on utilise 'clientName' partout (et non 'customerName') pour être
+    //                cohérent avec CartManager.checkout() et l'affichage admin.
     const order = {
-      customerName: data.customerName||'', phone: data.phone||'', address: data.address||'',
+      clientName: data.clientName||'', phone: data.phone||'', address: data.address||'',
       deliveryType: data.deliveryType||'livraison', items: data.items||[],
       total: data.total||0, status: 'en_attente', notes: data.notes||'',
+      table: data.table || '',
       createdAt: DB._now(), updatedAt: DB._now()
     };
     const ref = await FS.orders().add(order);

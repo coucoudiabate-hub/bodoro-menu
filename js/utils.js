@@ -73,11 +73,16 @@ const CheckoutModal = {
     document.getElementById('checkout-total').textContent = formatPrice(total);
 
     const savingsEl = document.getElementById('checkout-savings');
-    if (savings > 0) {
-      savingsEl.style.display = 'flex';
-      savingsEl.querySelector('span').textContent = `Vous économisez ${formatPrice(savings)} !`;
-    } else {
-      savingsEl.style.display = 'none';
+    // BUG FIX (v3.6): l'élément #checkout-savings ne contient pas de <span> dans le HTML
+    //                (cf. index.html). On utilise textContent directement sur l'élément.
+    if (savingsEl) {
+      if (savings > 0) {
+        savingsEl.textContent = `🎉 Vous économisez ${formatPrice(savings)} !`;
+        savingsEl.style.display = 'block';
+      } else {
+        savingsEl.textContent = '';
+        savingsEl.style.display = 'none';
+      }
     }
   }
 };
@@ -134,14 +139,25 @@ const CartDrawer = {
     // Update totals
     document.getElementById('cart-total').textContent = formatPrice(total);
     const origEl = document.getElementById('cart-original-total');
-    if (origEl && savings > 0) {
-      origEl.textContent = formatPrice(originalTotal);
-      origEl.parentElement.style.display = 'flex';
-    }
     const savingsEl = document.getElementById('cart-savings');
-    if (savingsEl && savings > 0) {
-      savingsEl.textContent = `Économie : ${formatPrice(savings)}`;
-      savingsEl.style.display = 'block';
+    // BUG FIX (v3.6): on MASQUE aussi les éléments d'économie quand savings = 0,
+    //                sinon un ancien montant reste affiché après suppression d'un article promo.
+    if (origEl) {
+      if (savings > 0) {
+        origEl.textContent = formatPrice(originalTotal);
+        origEl.parentElement.style.display = 'flex';
+      } else {
+        origEl.parentElement.style.display = 'none';
+      }
+    }
+    if (savingsEl) {
+      if (savings > 0) {
+        savingsEl.textContent = `Économie : ${formatPrice(savings)}`;
+        savingsEl.style.display = 'block';
+      } else {
+        savingsEl.style.display = 'none';
+        savingsEl.textContent = '';
+      }
     }
   }
 };
@@ -166,7 +182,7 @@ const CartManager = {
     DB.clearCart();
     CartDrawer.render();
   },
-  checkout() {
+  async checkout() {
     const name = document.getElementById('checkout-name').value.trim();
     const phone = document.getElementById('checkout-phone').value.trim();
     const deliveryType = document.querySelector('.delivery-option.active')?.dataset.type || 'livraison';
@@ -180,36 +196,57 @@ const CartManager = {
     const cart = DB.getCart();
     if (cart.length === 0) { Toast.error('Votre panier est vide'); return; }
 
+    // Désactiver le bouton pendant la soumission
+    const submitBtn = document.getElementById('checkout-submit-btn');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '⏳ Envoi en cours...';
+    }
+
     const total = DB.getCartTotal();
     // Numéro de table (si scan QR)
     let tableNumber = null;
     try { tableNumber = sessionStorage.getItem('bodoro_table'); } catch {}
-    const order = DB.createOrder({
-      clientName: name,
-      phone,
-      address,
-      items: JSON.stringify(cart),
-      total,
-      deliveryType,
-      notes: tableNumber ? `${notes ? notes + ' | ' : ''}[Table ${tableNumber}]` : notes,
-      table: tableNumber || ''
-    });
 
-    // Build WhatsApp message
-    const config = DB.getConfig();
-    // tableNumber déjà récupéré ci-dessus (scan QR)
-    const itemsText = cart.map(i => `• ${i.emoji} ${i.name} × ${i.quantity} = ${formatPrice((i.promoPrice > 0 ? i.promoPrice : i.price) * i.quantity)}`).join('\n');
-    const msg = `🍽️ *Nouvelle Commande - ${config.restaurantName}*\n\n${tableNumber ? `🪑 *Table: ${tableNumber}*\n` : ''}👤 ${name}\n📱 ${phone}\n${deliveryType === 'livraison' ? '📍 ' + address : '🏪 Retrait sur place'}\n\n*Commande:*\n${itemsText}\n\n💰 *Total: ${formatPrice(total)}*\n${notes ? '\n📝 ' + notes : ''}`;
+    try {
+      // BUG FIX (v3.6): on attend réellement la création de la commande dans Firestore
+      //                avant d'ouvrir WhatsApp. Sinon, si l'écriture échoue, la commande
+      //                est perdue bien que le client soit envoyé sur WhatsApp.
+      const order = await DB.createOrder({
+        clientName: name,
+        phone,
+        address,
+        items: JSON.stringify(cart),
+        total,
+        deliveryType,
+        notes,
+        table: tableNumber || ''
+      });
 
-    DB.clearCart();
-    CartDrawer.render();
-    CheckoutModal.close();
+      // Build WhatsApp message
+      const config = DB.getConfig();
+      // tableNumber déjà récupéré ci-dessus (scan QR)
+      const itemsText = cart.map(i => `• ${i.emoji} ${i.name} × ${i.quantity} = ${formatPrice((i.promoPrice > 0 ? i.promoPrice : i.price) * i.quantity)}`).join('\n');
+      const msg = `🍽️ *Nouvelle Commande - ${config.restaurantName}*\n\n${tableNumber ? `🪑 *Table: ${tableNumber}*\n` : ''}👤 ${name}\n📱 ${phone}\n${deliveryType === 'livraison' ? '📍 ' + address : '🏪 Retrait sur place'}\n\n*Commande:*\n${itemsText}\n\n💰 *Total: ${formatPrice(total)}*\n${notes ? '\n📝 ' + notes : ''}`;
 
-    // Open WhatsApp
-    const waURL = `https://wa.me/${config.whatsapp}?text=${encodeURIComponent(msg)}`;
-    window.open(waURL, '_blank');
+      DB.clearCart();
+      CartDrawer.render();
+      CheckoutModal.close();
 
-    Toast.success('Commande envoyée via WhatsApp !');
+      // Open WhatsApp
+      const waURL = `https://wa.me/${config.whatsapp}?text=${encodeURIComponent(msg)}`;
+      window.open(waURL, '_blank');
+
+      Toast.success('Commande envoyée via WhatsApp !');
+    } catch (e) {
+      console.error('Erreur création commande:', e);
+      Toast.error('Erreur lors de l\'envoi de la commande : ' + (e.message || 'échec Firestore'));
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '✅ Confirmer via WhatsApp';
+      }
+    }
   }
 };
 
@@ -225,3 +262,28 @@ function confirmAction(message, callback) {
 }
 
 // Format helpers are already in store.js
+
+// ============================================================
+// HELPERS SÉCURITÉ - Protection XSS
+// ============================================================
+
+// Échappe le HTML pour éviter les attaques XSS lors de l'insertion de
+// données utilisateur (noms, notes, témoignages, etc.) dans innerHTML.
+// Usage : `${escapeHtml(userInput)}` au lieu de `${userInput}`.
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Tronque un texte à n caractères et ajoute « … » si nécessaire.
+// Utilisé pour les aperçus dans les listes (évite le débordement).
+function truncate(text, max = 80) {
+  if (!text) return '';
+  const t = String(text);
+  return t.length > max ? t.slice(0, max).trimEnd() + '…' : t;
+}

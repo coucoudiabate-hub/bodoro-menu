@@ -181,10 +181,12 @@ const AdminPages = {
     } else {
       html += '<div style="display:flex;flex-direction:column;gap:8px">';
       recentOrders.forEach(o => {
+        const safeName = escapeHtml(o.clientName || '?');
+        const safeInitial = escapeHtml((o.clientName||'?')[0].toUpperCase());
         html += `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg);cursor:pointer" onclick="AdminPages._showOrderDetail('${o.id}')">
-          <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.875rem">${(o.clientName||'?')[0].toUpperCase()}</div>
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.875rem">${safeInitial}</div>
           <div style="flex:1">
-            <div style="font-weight:600;font-size:0.875rem">${o.clientName}</div>
+            <div style="font-weight:600;font-size:0.875rem">${safeName}${o.table ? ` <span style="color:var(--bodoro);font-size:0.7rem">🪑T${escapeHtml(o.table)}</span>` : ''}</div>
             <div style="font-size:0.75rem;color:var(--text-muted)">${formatDate(o.createdAt)}</div>
           </div>
           <span class="badge badge-outline" style="font-size:0.6875rem">${AdminPages._statusLabel(o.status)}</span>
@@ -297,7 +299,9 @@ const AdminPages = {
 
   _updateSidebarBadges() {
     // Show pending orders count badge in sidebar
-    const pendingOrders = DB.getOrders().filter(o => o.status === 'en attente' || o.status === 'nouvelle').length;
+    // BUG FIX (v3.6): on filtre par 'en_attente' (avec underscore) qui est le vrai statut
+    //                utilisé dans createOrder/updateOrderStatus, et non 'en attente' (avec espace).
+    const pendingOrders = DB.getOrders().filter(o => o.status === 'en_attente' || o.status === 'confirmee').length;
     const sidebarItems = document.querySelectorAll('#admin-sidebar .sidebar-item[data-tab="orders"]');
     sidebarItems.forEach(item => {
       let badge = item.querySelector('.sidebar-badge');
@@ -491,28 +495,37 @@ const AdminPages = {
     }
   },
 
-  _toggleMenuJour(id) {
+  async _toggleMenuJour(id) {
     const item = DB.getItem(id);
-    if (item) {
-      DB.updateItem(id, { isMenuJour: !item.isMenuJour });
+    if (!item) return;
+    try {
+      await DB.updateItem(id, { isMenuJour: !item.isMenuJour });
       Toast.success(item.isMenuJour ? 'Retiré du menu du jour' : 'Ajouté au menu du jour');
       AdminPages._renderArticlesList();
+    } catch (e) {
+      console.error('Erreur toggle menu jour:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
   },
 
-  _toggleAvailability(id) {
+  async _toggleAvailability(id) {
     const item = DB.getItem(id);
-    if (item) {
-      DB.updateItem(id, { available: !item.available });
+    if (!item) return;
+    try {
+      await DB.updateItem(id, { available: !item.available });
       Toast.success(item.available ? 'Article marqué indisponible' : 'Article marqué disponible');
       AdminPages._renderArticlesList();
+    } catch (e) {
+      console.error('Erreur toggle dispo:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
   },
 
-  _duplicateArticle(id) {
+  async _duplicateArticle(id) {
     const item = DB.getItem(id);
-    if (item) {
-      DB.createItem({
+    if (!item) return;
+    try {
+      await DB.createItem({
         name: item.name + ' (copie)',
         description: item.description,
         price: item.price,
@@ -525,16 +538,24 @@ const AdminPages = {
       });
       Toast.success('Article dupliqué');
       AdminPages._renderArticlesContent();
+    } catch (e) {
+      console.error('Erreur duplication article:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
   },
 
   _deleteArticle(id) {
     const item = DB.getItem(id);
     if (!item) return;
-    confirmAction(`Supprimer l'article "${item.name}" ?`, () => {
-      DB.deleteItem(id);
-      Toast.success('Article supprimé');
-      AdminPages._renderArticlesContent();
+    confirmAction(`Supprimer l'article "${escapeHtml(item.name)}" ?`, async () => {
+      try {
+        await DB.deleteItem(id);
+        Toast.success('Article supprimé');
+        AdminPages._renderArticlesContent();
+      } catch (e) {
+        console.error('Erreur suppression article:', e);
+        Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+      }
     });
   },
 
@@ -599,7 +620,7 @@ const AdminPages = {
     Modal.open(isEdit ? 'Modifier l\'article' : 'Nouvel Article', body, footer, { width: '560px' });
   },
 
-  _saveArticle(itemId) {
+  async _saveArticle(itemId) {
     const name = document.getElementById('dlg-art-name')?.value.trim();
     const emoji = document.getElementById('dlg-art-emoji')?.value || '🍛';
     const desc = document.getElementById('dlg-art-desc')?.value.trim();
@@ -612,18 +633,24 @@ const AdminPages = {
 
     if (!name) { Toast.error('Le nom est obligatoire'); return; }
     if (price <= 0) { Toast.error('Le prix doit être supérieur à 0'); return; }
+    if (promo > 0 && promo >= price) { Toast.error('Le prix promo doit être inférieur au prix normal'); return; }
 
     const data = { name, emoji, description: desc, price, promoPrice: promo, categoryId: catId, image, available, isMenuJour };
 
-    if (itemId) {
-      DB.updateItem(itemId, data);
-      Toast.success('Article mis à jour');
-    } else {
-      DB.createItem(data);
-      Toast.success('Article créé');
+    try {
+      if (itemId) {
+        await DB.updateItem(itemId, data);
+        Toast.success('Article mis à jour');
+      } else {
+        await DB.createItem(data);
+        Toast.success('Article créé');
+      }
+      Modal.close();
+      AdminPages._renderArticlesContent();
+    } catch (e) {
+      console.error('Erreur sauvegarde article:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
-    Modal.close();
-    AdminPages._renderArticlesContent();
   },
 
   // ================================================================
@@ -676,25 +703,40 @@ const AdminPages = {
     container.innerHTML = html;
   },
 
-  _reorderCategory(id, direction) {
-    DB.reorderCategories(id, direction);
-    AdminPages.renderCategories();
+  async _reorderCategory(id, direction) {
+    try {
+      await DB.reorderCategories(id, direction);
+      AdminPages.renderCategories();
+    } catch (e) {
+      console.error('Erreur réordonnancement:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+    }
   },
 
-  _toggleCategoryActive(id, active) {
-    DB.updateCategory(id, { active });
-    Toast.success(active ? 'Catégorie activée' : 'Catégorie désactivée');
-    AdminPages.renderCategories();
+  async _toggleCategoryActive(id, active) {
+    try {
+      await DB.updateCategory(id, { active });
+      Toast.success(active ? 'Catégorie activée' : 'Catégorie désactivée');
+      AdminPages.renderCategories();
+    } catch (e) {
+      console.error('Erreur toggle catégorie:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+    }
   },
 
   _deleteCategory(id) {
     const cat = DB.getCategory(id);
     if (!cat) return;
     const count = DB.getItemsByCategory(id).length;
-    confirmAction(`Supprimer la catégorie "${cat.name}" et ses ${count} article${count!==1?'s':''} ?`, () => {
-      DB.deleteCategory(id);
-      Toast.success('Catégorie supprimée');
-      AdminPages.renderCategories();
+    confirmAction(`Supprimer la catégorie "${escapeHtml(cat.name)}" et ses ${count} article${count!==1?'s':''} ?`, async () => {
+      try {
+        await DB.deleteCategory(id);
+        Toast.success('Catégorie supprimée');
+        AdminPages.renderCategories();
+      } catch (e) {
+        console.error('Erreur suppression catégorie:', e);
+        Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+      }
     });
   },
 
@@ -730,7 +772,7 @@ const AdminPages = {
     Modal.open(isEdit ? 'Modifier la catégorie' : 'Nouvelle Catégorie', body, footer, { width: '460px' });
   },
 
-  _saveCategory(catId) {
+  async _saveCategory(catId) {
     const name = document.getElementById('dlg-cat-name')?.value.trim();
     const emoji = document.getElementById('dlg-cat-emoji')?.value || '🍽️';
     const sortOrder = parseInt(document.getElementById('dlg-cat-sort')?.value) || 0;
@@ -739,15 +781,20 @@ const AdminPages = {
 
     const data = { name, emoji, sortOrder };
 
-    if (catId) {
-      DB.updateCategory(catId, data);
-      Toast.success('Catégorie mise à jour');
-    } else {
-      DB.createCategory(data);
-      Toast.success('Catégorie créée');
+    try {
+      if (catId) {
+        await DB.updateCategory(catId, data);
+        Toast.success('Catégorie mise à jour');
+      } else {
+        await DB.createCategory(data);
+        Toast.success('Catégorie créée');
+      }
+      Modal.close();
+      AdminPages.renderCategories();
+    } catch (e) {
+      console.error('Erreur sauvegarde catégorie:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
-    Modal.close();
-    AdminPages.renderCategories();
   },
 
   // ================================================================
@@ -813,10 +860,12 @@ const AdminPages = {
 
   _renderOrderCard(o) {
     const statusColor = AdminPages._statusColor(o.status);
+    const safeName = escapeHtml(o.clientName || '?');
+    const safeInitial = escapeHtml((o.clientName||'?')[0].toUpperCase());
     return `<div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:var(--radius-sm);background:var(--bg);cursor:pointer" onclick="AdminPages._showOrderDetail('${o.id}')">
-      <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;flex-shrink:0">${(o.clientName||'?')[0].toUpperCase()}</div>
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;flex-shrink:0">${safeInitial}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:0.9375rem">${o.clientName}</div>
+        <div style="font-weight:600;font-size:0.9375rem">${safeName}${o.table ? ` <span style="color:var(--bodoro);font-size:0.75rem">🪑 T${escapeHtml(o.table)}</span>` : ''}</div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:2px">
           <span style="font-size:0.8125rem;color:var(--text-muted)">${o.deliveryType==='livraison'?'🛵 Livraison':'🏪 Retrait'}</span>
           <span style="font-size:0.8125rem;color:var(--text-muted)">•</span>
@@ -832,7 +881,7 @@ const AdminPages = {
     let orders = DB.getOrders();
     if (AdminPages._ordSearch) {
       const s = AdminPages._ordSearch.toLowerCase();
-      orders = orders.filter(o => o.clientName.toLowerCase().includes(s) || (o.phone||'').includes(s));
+      orders = orders.filter(o => (o.clientName||'').toLowerCase().includes(s) || (o.phone||'').includes(s));
     }
     if (AdminPages._ordStatus !== 'toutes') {
       orders = orders.filter(o => o.status === AdminPages._ordStatus);
@@ -914,6 +963,12 @@ const AdminPages = {
     let items = [];
     try { items = JSON.parse(order.items || '[]'); } catch { items = []; }
 
+    // Sécurité XSS : on échappe toutes les données utilisateur
+    const safeName = escapeHtml(order.clientName || '');
+    const safePhone = escapeHtml(order.phone || '');
+    const safeAddress = escapeHtml(order.address || '');
+    const safeNotes = escapeHtml(order.notes || '');
+
     const body = `
       ${timelineHTML}
 
@@ -921,9 +976,10 @@ const AdminPages = {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
         <div style="padding:12px;border-radius:var(--radius-sm);background:var(--bg)">
           <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px">Client</div>
-          <div style="font-weight:700">${order.clientName}</div>
-          <div style="font-size:0.875rem;color:var(--text-muted)">${order.phone||'-'}</div>
-          ${order.address ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:2px">📍 ${order.address}</div>` : ''}
+          <div style="font-weight:700">${safeName}</div>
+          <div style="font-size:0.875rem;color:var(--text-muted)">${safePhone || '-'}</div>
+          ${safeAddress ? `<div style="font-size:0.8125rem;color:var(--text-muted);margin-top:2px">📍 ${safeAddress}</div>` : ''}
+          ${order.table ? `<div style="font-size:0.8125rem;color:var(--bodoro);font-weight:600;margin-top:4px">🪑 Table ${escapeHtml(order.table)}</div>` : ''}
         </div>
         <div style="padding:12px;border-radius:var(--radius-sm);background:var(--bg)">
           <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;letter-spacing:0.5px;margin-bottom:6px">Détails</div>
@@ -939,8 +995,8 @@ const AdminPages = {
           ${items.length > 0 ? items.map(i => {
             const unitPrice = i.promoPrice > 0 ? i.promoPrice : i.price;
             return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--bg)">
-              <span style="font-size:1.25rem">${i.emoji}</span>
-              <div style="flex:1;font-size:0.875rem;font-weight:600">${i.name} <span style="color:var(--text-muted);font-weight:400">× ${i.quantity}</span></div>
+              <span style="font-size:1.25rem">${escapeHtml(i.emoji || '🍽️')}</span>
+              <div style="flex:1;font-size:0.875rem;font-weight:600">${escapeHtml(i.name)} <span style="color:var(--text-muted);font-weight:400">× ${i.quantity}</span></div>
               <div style="font-weight:700;font-size:0.875rem">${formatPrice(unitPrice * i.quantity)}</div>
             </div>`;
           }).join('') : '<p style="color:var(--text-muted);font-size:0.875rem">Aucun article</p>'}
@@ -951,9 +1007,9 @@ const AdminPages = {
       </div>
 
       <!-- Notes -->
-      ${order.notes ? `<div style="margin-bottom:20px">
+      ${safeNotes ? `<div style="margin-bottom:20px">
         <h4 style="font-weight:700;margin-bottom:6px;font-size:0.9375rem">📝 Notes</h4>
-        <p style="font-size:0.875rem;color:var(--text-secondary);background:var(--bg);padding:10px;border-radius:var(--radius-sm)">${order.notes}</p>
+        <p style="font-size:0.875rem;color:var(--text-secondary);background:var(--bg);padding:10px;border-radius:var(--radius-sm)">${safeNotes}</p>
       </div>` : ''}
 
       <!-- Status Actions -->
@@ -970,11 +1026,17 @@ const AdminPages = {
     Modal.open(`Commande #${order.id.slice(0,8)}`, body, footer, { width: '560px' });
   },
 
-  _updateOrderStatus(id, status) {
-    DB.updateOrder(id, { status });
-    Toast.success(`Statut mis à jour : ${AdminPages._statusLabel(status)}`);
-    Modal.close();
-    AdminPages._renderOrdersContent();
+  async _updateOrderStatus(id, status) {
+    try {
+      await DB.updateOrder(id, { status });
+      Toast.success(`Statut mis à jour : ${AdminPages._statusLabel(status)}`);
+      Modal.close();
+      AdminPages._renderOrdersContent();
+      AdminPages._updateSidebarBadges();
+    } catch (e) {
+      console.error('Erreur MAJ statut:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+    }
   },
 
   // ================================================================
@@ -998,9 +1060,9 @@ const AdminPages = {
       const stars = '★'.repeat(t.rating) + '☆'.repeat(5 - t.rating);
       html += `<div class="card" style="padding:16px;display:flex;align-items:flex-start;gap:14px">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:0.9375rem;margin-bottom:4px">${t.author}</div>
+          <div style="font-weight:700;font-size:0.9375rem;margin-bottom:4px">${escapeHtml(t.author)}</div>
           <div style="color:#f59e0b;font-size:0.875rem;margin-bottom:6px;letter-spacing:2px">${stars}</div>
-          <div style="font-size:0.875rem;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${t.text}</div>
+          <div style="font-size:0.875rem;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(t.text)}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
           <button class="btn btn-sm btn-outline" onclick="AdminPages._openTestimonialDialog('${t.id}')" title="Modifier">✏️</button>
@@ -1057,7 +1119,7 @@ const AdminPages = {
     });
   },
 
-  _saveTestimonial(id) {
+  async _saveTestimonial(id) {
     const author = document.getElementById('dlg-test-author')?.value.trim();
     const rating = parseInt(document.getElementById('dlg-test-rating')?.value) || 5;
     const text = document.getElementById('dlg-test-text')?.value.trim();
@@ -1067,22 +1129,32 @@ const AdminPages = {
 
     const data = { author, rating, text };
 
-    if (id) {
-      DB.updateTestimonial(id, data);
-      Toast.success('Avis mis à jour');
-    } else {
-      DB.createTestimonial(data);
-      Toast.success('Avis créé');
+    try {
+      if (id) {
+        await DB.updateTestimonial(id, data);
+        Toast.success('Avis mis à jour');
+      } else {
+        await DB.createTestimonial(data);
+        Toast.success('Avis créé');
+      }
+      Modal.close();
+      AdminPages.renderTestimonials();
+    } catch (e) {
+      console.error('Erreur sauvegarde avis:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
-    Modal.close();
-    AdminPages.renderTestimonials();
   },
 
   _deleteTestimonial(id) {
-    confirmAction('Supprimer cet avis client ?', () => {
-      DB.deleteTestimonial(id);
-      Toast.success('Avis supprimé');
-      AdminPages.renderTestimonials();
+    confirmAction('Supprimer cet avis client ?', async () => {
+      try {
+        await DB.deleteTestimonial(id);
+        Toast.success('Avis supprimé');
+        AdminPages.renderTestimonials();
+      } catch (e) {
+        console.error('Erreur suppression avis:', e);
+        Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+      }
     });
   },
 
@@ -1168,7 +1240,7 @@ const AdminPages = {
     Modal.open(isEdit ? 'Modifier la promotion' : 'Nouvelle Promotion', body, footer, { width: '500px' });
   },
 
-  _savePromotion(id) {
+  async _savePromotion(id) {
     const title = document.getElementById('dlg-promo-title')?.value.trim();
     const emoji = document.getElementById('dlg-promo-emoji')?.value || '🎉';
     const description = document.getElementById('dlg-promo-desc')?.value.trim();
@@ -1179,22 +1251,32 @@ const AdminPages = {
 
     const data = { title, emoji, description, discount, active };
 
-    if (id) {
-      DB.updatePromotion(id, data);
-      Toast.success('Promotion mise à jour');
-    } else {
-      DB.createPromotion(data);
-      Toast.success('Promotion créée');
+    try {
+      if (id) {
+        await DB.updatePromotion(id, data);
+        Toast.success('Promotion mise à jour');
+      } else {
+        await DB.createPromotion(data);
+        Toast.success('Promotion créée');
+      }
+      Modal.close();
+      AdminPages.renderPromotions();
+    } catch (e) {
+      console.error('Erreur sauvegarde promotion:', e);
+      Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
     }
-    Modal.close();
-    AdminPages.renderPromotions();
   },
 
   _deletePromotion(id) {
-    confirmAction('Supprimer cette promotion ?', () => {
-      DB.deletePromotion(id);
-      Toast.success('Promotion supprimée');
-      AdminPages.renderPromotions();
+    confirmAction('Supprimer cette promotion ?', async () => {
+      try {
+        await DB.deletePromotion(id);
+        Toast.success('Promotion supprimée');
+        AdminPages.renderPromotions();
+      } catch (e) {
+        console.error('Erreur suppression promotion:', e);
+        Toast.error('Erreur : ' + (e.message || 'échec Firestore'));
+      }
     });
   },
 
@@ -1551,7 +1633,13 @@ const AdminPages = {
     }
   },
 
-  _saveConfig() {
+  async _saveConfig() {
+    const saveBtn = document.getElementById('config-save-btn');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '⏳ Enregistrement...';
+    }
+
     const updates = {
       restaurantName: document.getElementById('cfg-name')?.value.trim() || '',
       slogan: document.getElementById('cfg-slogan')?.value.trim() || '',
@@ -1576,11 +1664,28 @@ const AdminPages = {
       mapZoom: parseInt(document.getElementById('cfg-map-zoom')?.value) || 15
     };
 
-    DB.updateConfig(updates);
-    AdminPages._configDirty = false;
-    const badge = document.getElementById('config-dirty-badge');
-    if (badge) badge.style.display = 'none';
-    Toast.success('Configuration enregistrée');
+    try {
+      // BUG FIX (v3.6): on attend réellement la fin de l'écriture Firestore
+      //                avant d'afficher le message de succès.
+      await DB.updateConfig(updates);
+      AdminPages._configDirty = false;
+      const badge = document.getElementById('config-dirty-badge');
+      if (badge) badge.style.display = 'none';
+      Toast.success('Configuration enregistrée');
+      // Mettre à jour les infos dynamiques (footer, statut restaurant)
+      if (typeof App !== 'undefined') {
+        App._updateFooterInfo();
+        App._updateRestaurantStatus();
+      }
+    } catch (e) {
+      console.error('Erreur enregistrement config:', e);
+      Toast.error('Erreur lors de l\'enregistrement : ' + (e.message || 'échec Firestore'));
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '💾 Enregistrer';
+      }
+    }
   },
 
   // ================================================================

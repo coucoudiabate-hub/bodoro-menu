@@ -123,8 +123,8 @@ const ClientPages = {
         const stars = '★'.repeat(t.rating) + '☆'.repeat(5 - t.rating);
         html += `<div class="testimonial-card card-enter">
           <div class="star-rating" style="margin-bottom:10px">${stars.split('').map(s => `<span class="star ${s === '★' ? 'active' : ''}">${s}</span>`).join('')}</div>
-          <div class="quote">"${t.text}"</div>
-          <div class="author">— ${t.author}</div>
+          <div class="quote">"${escapeHtml(t.text)}"</div>
+          <div class="author">— ${escapeHtml(t.author)}</div>
         </div>`;
       });
       html += '</div>';
@@ -354,7 +354,7 @@ const ClientPages = {
       <div class="info-card card-enter" style="animation-delay:0.3s">
         <div class="info-icon">💬</div>
         <h3>WhatsApp</h3>
-        <p><a href="https://wa.me/${config.whatsapp}" target="_blank" style="color:var(--bodoro)">${config.whatsapp}</a></p>
+        <p><a href="https://wa.me/${(config.whatsapp || '').replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--bodoro)">${config.whatsapp}</a></p>
       </div>
     </div>`;
 
@@ -451,11 +451,12 @@ const ClientPages = {
       `}
     </div>`;
 
-    // WhatsApp CTA
+    // WhatsApp CTA - FIX: cleanup le numéro (garder seulement chiffres)
+    const whatsappNum = (config.whatsapp || '').replace(/[^0-9]/g, '');
     html += `<div class="cta-section" style="background:linear-gradient(135deg,#075e54,#128C7E,#25D366)">
       <h2>💬 Commandez via WhatsApp</h2>
       <p>Envoyez-nous votre commande directement par WhatsApp pour un service rapide</p>
-      <a href="https://wa.me/${config.whatsapp}" target="_blank" class="btn btn-gold btn-lg">Commander via WhatsApp</a>
+      ${whatsappNum ? `<a href="https://wa.me/${whatsappNum}" target="_blank" class="btn btn-gold btn-lg">Commander via WhatsApp</a>` : '<p style="color: #ccc">Numéro WhatsApp non configuré</p>'}
     </div>`;
 
     html += '</div>';
