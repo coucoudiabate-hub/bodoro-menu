@@ -97,6 +97,10 @@ async function seedDatabase() {
   const catIdMap = {};
   for (const cat of categories) {
     const oldId = cat.id;
+    // SÉCURITÉ ANTI-DOUBLON : si une catégorie du même nom existe déjà, on la réutilise
+    // au lieu d'en recréer une nouvelle (protection supplémentaire, en plus du fix dans app.js).
+    const existing = DB.getCategories().find(c => (c.name || '').trim().toLowerCase() === cat.name.trim().toLowerCase());
+    if (existing) { catIdMap[oldId] = existing.id; continue; }
     const created = await DB.createCategory({
       name: cat.name, emoji: cat.emoji, sortOrder: cat.sortOrder, active: cat.active
     });
@@ -105,6 +109,9 @@ async function seedDatabase() {
 
   // Créer les articles avec les bons categoryId Firestore
   for (const item of items) {
+    // SÉCURITÉ ANTI-DOUBLON : si un article du même nom existe déjà, on ne le recrée pas.
+    const existing = DB.getItems().find(i => (i.name || '').trim().toLowerCase() === item.name.trim().toLowerCase());
+    if (existing) continue;
     await DB.createItem({
       name: item.name, description: item.description || '',
       price: item.price, promoPrice: item.promoPrice || 0,
@@ -118,11 +125,15 @@ async function seedDatabase() {
 
   // Créer les promotions
   for (const p of promotions) {
+    const existing = DB.getPromotions().find(x => (x.title || '').trim().toLowerCase() === p.title.trim().toLowerCase());
+    if (existing) continue;
     await DB.createPromotion({ title: p.title, description: p.description, discount: p.discount, emoji: p.emoji, active: p.active !== false });
   }
 
   // Créer les témoignages
   for (const t of testimonials) {
+    const existing = DB.getTestimonials().find(x => (x.author || '').trim().toLowerCase() === t.author.trim().toLowerCase());
+    if (existing) continue;
     await DB.createTestimonial({ author: t.author, text: t.text, rating: t.rating, approved: true });
   }
 }

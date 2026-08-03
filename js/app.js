@@ -20,8 +20,14 @@ const App = {
       const firestoreTimeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Firestore timeout')), 8000)
       );
-      await Promise.race([DB.loadAll(), firestoreTimeout]);
-      if (!DB.isSeeded()) await seedDatabase();
+      const loaded = await Promise.race([DB.loadAll(), firestoreTimeout]);
+      // BUG FIX (duplication): ne JAMAIS lancer seedDatabase() si le chargement
+      // Firestore a échoué (loaded === false). Avant ce correctif, un simple raté
+      // réseau sur la collection "categories" faisait croire à l'app que la base
+      // était vide, et seedDatabase() recréait alors tous les articles en double
+      // dans Firestore (FS.items().add() crée toujours un NOUVEAU document).
+      if (loaded && !DB.isSeeded()) await seedDatabase();
+      if (!loaded) throw new Error('Firestore indisponible (chargement incomplet)');
     } catch(e) {
       console.error('Erreur Firestore:', e.message);
       const msg = document.getElementById('loader-msg');
